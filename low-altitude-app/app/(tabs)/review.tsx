@@ -122,7 +122,8 @@ export default function ReviewScreen() {
     setGeneratingTaskId(taskId);
     const reportId = generateReport(taskId);
     if (reportId) {
-      const task = tasks.find((t) => t.id === taskId);
+      const freshTasks = useAppStore.getState().tasks;
+      const task = freshTasks.find((t) => t.id === taskId);
       const report = task?.reports.find((r) => r.id === reportId);
       if (report) {
         setViewingReport(report);
@@ -145,7 +146,8 @@ export default function ReviewScreen() {
     let report = task.reports.length > 0 ? task.reports[task.reports.length - 1] : null;
     if (!report) {
       const reportId = generateReport(task.id);
-      const updatedTask = tasks.find((t) => t.id === task.id);
+      const freshTasks = useAppStore.getState().tasks;
+      const updatedTask = freshTasks.find((t) => t.id === task.id);
       report = updatedTask?.reports.find((r) => r.id === reportId) || null;
     }
     if (!report) return;

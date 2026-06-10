@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, Text, StyleSheet, ActivityIndicator, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { colors, spacing, fontSize, borderRadius } from '../theme';
 
-type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'danger' | 'ghost';
+type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'danger' | 'ghost' | 'success';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps {
@@ -91,6 +91,7 @@ const getVariantStyle = (variant: ButtonVariant): ViewStyle => {
     outline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.primary },
     danger: { backgroundColor: colors.danger },
     ghost: { backgroundColor: 'transparent' },
+    success: { backgroundColor: colors.success },
   };
   return map[variant];
 };

@@ -118,7 +118,10 @@ export default function TaskDetailScreen() {
     setAbnormalPhotos([]);
   };
 
+  const setSelectedTaskId = useAppStore((s) => s.setSelectedTaskId);
+
   const goToMonitor = () => {
+    setSelectedTaskId(task.id);
     router.push('/monitor');
   };
 
@@ -189,7 +192,7 @@ export default function TaskDetailScreen() {
           />
         </Card>
 
-        {task.status === 'in_progress' && (
+        {(task.status === 'in_progress' || task.status === 'paused') && (
           <Card>
             <SectionHeader title="快捷操作" />
             <View style={styles.actionRow}>
@@ -214,7 +217,7 @@ export default function TaskDetailScreen() {
           <SectionHeader
             title={`异常点 (${task.abnormalPoints.length})`}
             right={
-              task.status === 'in_progress' ? (
+              task.status === 'in_progress' || task.status === 'paused' ? (
                 <Button
                   title="新增"
                   size="sm"

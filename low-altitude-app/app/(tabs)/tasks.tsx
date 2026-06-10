@@ -144,21 +144,25 @@ export default function TaskListScreen() {
               </View>
             </CardSection>
 
-            {task.droneName && (
+            {(task.droneName || task.droneModelName) && (
               <CardSection style={{ marginTop: spacing.sm, paddingTop: 0 }}>
                 <View style={styles.metaRow}>
-                  <Ionicons name="airplane-outline" size={14} color={colors.primary} />
-                  <Text style={styles.metaText}>{task.droneName}</Text>
+                  {task.droneName ? (
+                    <>
+                      <Ionicons name="airplane-outline" size={14} color={colors.primary} />
+                      <Text style={styles.metaText}>{task.droneName}</Text>
+                    </>
+                  ) : null}
                   {task.droneModelName && (
                     <>
-                      <Text style={styles.metaDivider}>·</Text>
+                      {task.droneName ? <Text style={styles.metaDivider}>·</Text> : null}
                       <Ionicons name="hardware-chip-outline" size={14} color={colors.textMuted} />
                       <Text style={styles.metaText}>{task.droneModelName}</Text>
                     </>
                   )}
                   {task.payloadName ? (
                     <>
-                      <Text style={styles.metaDivider}>·</Text>
+                      {task.droneName || task.droneModelName ? <Text style={styles.metaDivider}>·</Text> : null}
                       <Ionicons name="cube-outline" size={14} color={colors.secondary} />
                       <Text style={[styles.metaText, { color: colors.secondary }]}>{task.payloadName}</Text>
                     </>

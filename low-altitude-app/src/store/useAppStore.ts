@@ -162,10 +162,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       reportedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
       handled: false,
     };
+    const appendedPhotos = point.photos || [];
     set((state) => ({
       tasks: state.tasks.map((t) =>
         t.id === taskId
-          ? { ...t, abnormalPoints: [...t.abnormalPoints, newPoint] }
+          ? {
+              ...t,
+              abnormalPoints: [...t.abnormalPoints, newPoint],
+              photos: [...t.photos, ...appendedPhotos],
+            }
           : t
       ),
     }));
@@ -281,6 +286,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const flightRecord = get().flightRecords.find((r) => r.taskId === taskId);
     if (!task) return '';
 
+    const abnormalWithPhotos = task.abnormalPoints.filter((ap) => ap.photos.length > 0);
+    const totalPhotos = task.photos.length;
+    const photosPerPoint = abnormalWithPhotos.length > 0
+      ? abnormalWithPhotos.map((ap) =>
+          `  · 异常点"${ap.type}"(${ap.severity === 'severe' ? '严重' : ap.severity === 'moderate' ? '中等' : '轻微'}): ${ap.photos.length}张`
+        ).join('\n')
+      : '';
+
     const abnormalSummary = task.abnormalPoints.length > 0
       ? task.abnormalPoints.map((ap, i) =>
           `${i + 1}. [${ap.severity === 'severe' ? '严重' : ap.severity === 'moderate' ? '中等' : '轻微'}] ${ap.type}: ${ap.description}${ap.photos.length > 0 ? ` (附${ap.photos.length}张照片)` : ''}`
@@ -290,6 +303,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const trajectorySummary = flightRecord
       ? `飞行时长: ${flightRecord.duration}分钟, 飞行距离: ${flightRecord.distance}m, 最大高度: ${flightRecord.maxAltitude}m, 最大速度: ${flightRecord.maxSpeed}m/s, 拍摄照片: ${flightRecord.photos}张`
       : '暂无飞行记录数据';
+
+    const photoSection = totalPhotos > 0
+      ? `共${totalPhotos}张现场照片${abnormalWithPhotos.length > 0 ? '，分布如下:\n' + photosPerPoint : '。'}`
+      : '无现场照片';
 
     const reportContent = [
       `【巡检报告】${task.name}`,
@@ -313,7 +330,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       `  ${abnormalSummary}`,
       '',
       `四、现场照片`,
-      `  ${task.photos.length > 0 ? `共${task.photos.length}张现场照片` : '无现场照片'}`,
+      `  ${photoSection}`,
       '',
       `五、巡检结论`,
       `  ${task.abnormalPoints.length === 0 ? '本次巡检未发现异常，设备运行正常。' : `本次巡检共发现${task.abnormalPoints.length}处异常，其中严重${task.abnormalPoints.filter(a => a.severity === 'severe').length}处、中等${task.abnormalPoints.filter(a => a.severity === 'moderate').length}处、轻微${task.abnormalPoints.filter(a => a.severity === 'minor').length}处，建议及时处理。`}`,
