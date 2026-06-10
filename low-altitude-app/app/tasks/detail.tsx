@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, ScrollView, StyleSheet, Text, Pressable, Modal, TextInput, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, Pressable, Modal, TextInput, Alert, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useAppStore } from '../../src/store/useAppStore';
 import { colors, spacing, fontSize, borderRadius } from '../../src/theme';
 import { Card, CardDivider, CardSection } from '../../src/components/Card';
@@ -17,6 +18,7 @@ export default function TaskDetailScreen() {
   const getTaskById = useAppStore((s) => s.getTaskById);
   const updateTaskStatus = useAppStore((s) => s.updateTaskStatus);
   const addAbnormalPoint = useAppStore((s) => s.addAbnormalPoint);
+  const addPhotosToAbnormalPoint = useAppStore((s) => s.addPhotosToAbnormalPoint);
   const getAirspaceApplicationById = useAppStore((s) => s.getAirspaceApplicationById);
 
   const task = selectedTaskId ? getTaskById(selectedTaskId) : undefined;
@@ -28,6 +30,7 @@ export default function TaskDetailScreen() {
   const [abnormalType, setAbnormalType] = useState('');
   const [abnormalDesc, setAbnormalDesc] = useState('');
   const [abnormalSeverity, setAbnormalSeverity] = useState<'minor' | 'moderate' | 'severe'>('moderate');
+  const [abnormalPhotos, setAbnormalPhotos] = useState<string[]>([]);
 
   if (!task) {
     return (
@@ -60,6 +63,43 @@ export default function TaskDetailScreen() {
     ]);
   };
 
+  const handleTakePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('权限不足', '需要摄像头权限才能拍照');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setAbnormalPhotos((prev) => [...prev, result.assets[0].uri]);
+    }
+  };
+
+  const handlePickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('权限不足', '需要相册访问权限');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      const uris = result.assets.map((a) => a.uri);
+      setAbnormalPhotos((prev) => [...prev, ...uris]);
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setAbnormalPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleAddAbnormal = () => {
     if (!abnormalType.trim() || !abnormalDesc.trim()) return;
     addAbnormalPoint(task.id, {
@@ -68,13 +108,14 @@ export default function TaskDetailScreen() {
       type: abnormalType.trim(),
       description: abnormalDesc.trim(),
       severity: abnormalSeverity,
-      photos: [],
+      photos: abnormalPhotos,
       handled: false,
     });
     setShowAbnormalModal(false);
     setAbnormalType('');
     setAbnormalDesc('');
     setAbnormalSeverity('moderate');
+    setAbnormalPhotos([]);
   };
 
   const goToMonitor = () => {
@@ -112,6 +153,25 @@ export default function TaskDetailScreen() {
         <Card>
           <SectionHeader title="执行配置" />
           <InfoRow label="无人机" value={task.droneName || '未选择'} />
+          <InfoRow label="机型" value={task.droneModelName || '-'} />
+          <InfoRow
+            label="载荷"
+            value={
+              task.payloadName
+                ? task.payloadName
+                : task.droneModelName
+                  ? '未安装'
+                  : '-'
+            }
+          />
+          {!task.payloadName && task.droneModelName && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.xs }}>
+              <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
+              <Text style={{ color: colors.textMuted, fontSize: fontSize.sm, marginLeft: spacing.xs }}>
+                当前未安装外挂载荷，将使用内置相机执行任务
+              </Text>
+            </View>
+          )}
           <InfoRow label="航线" value={task.routeName || '未选择'} />
           <InfoRow
             label="空域申请"
@@ -193,6 +253,17 @@ export default function TaskDetailScreen() {
                   </Text>
                 </View>
                 <Text style={styles.abnormalDesc}>{ap.description}</Text>
+                {ap.photos.length > 0 && (
+                  <View style={styles.abnormalPhotosRow}>
+                    <Ionicons name="images-outline" size={14} color={colors.secondary} />
+                    <Text style={styles.abnormalPhotoCount}>{ap.photos.length} 张照片</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.abnormalPhotoScroll}>
+                      {ap.photos.map((uri, idx) => (
+                        <Image key={idx} source={{ uri }} style={styles.abnormalPhotoThumb} />
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={[styles.abnormalStatus, { color: ap.handled ? colors.success : colors.warning }]}>
                     {ap.handled ? `✓ 已处理 - ${ap.handlerName} · ${formatDateTime(ap.handledAt || '')}` : '待处理'}
@@ -340,6 +411,33 @@ export default function TaskDetailScreen() {
                 numberOfLines={4}
                 textAlignVertical="top"
               />
+
+              <Text style={[styles.label, { marginTop: spacing.lg }]}>现场照片</Text>
+              <View style={styles.modalPhotoRow}>
+                <Pressable style={styles.modalPhotoBtn} onPress={handleTakePhoto}>
+                  <Ionicons name="camera" size={24} color={colors.primary} />
+                  <Text style={styles.modalPhotoBtnText}>拍照</Text>
+                </Pressable>
+                <Pressable style={styles.modalPhotoBtn} onPress={handlePickImage}>
+                  <Ionicons name="images" size={24} color={colors.primary} />
+                  <Text style={styles.modalPhotoBtnText}>相册</Text>
+                </Pressable>
+              </View>
+              {abnormalPhotos.length > 0 && (
+                <View style={{ marginHorizontal: spacing.lg, marginTop: spacing.sm }}>
+                  <Text style={styles.modalPhotoCount}>已选择 {abnormalPhotos.length} 张</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {abnormalPhotos.map((uri, idx) => (
+                      <View key={idx} style={styles.modalPhotoItem}>
+                        <Image source={{ uri }} style={styles.modalPhotoPreview} />
+                        <Pressable style={styles.modalPhotoRemove} onPress={() => removePhoto(idx)}>
+                          <Ionicons name="close-circle" size={16} color={colors.danger} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </ScrollView>
             <View style={styles.modalFooter}>
               <Button
@@ -423,6 +521,64 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: fontSize.sm,
     marginTop: spacing.xs,
+  },
+  abnormalPhotosRow: {
+    marginTop: spacing.sm,
+  },
+  abnormalPhotoCount: {
+    color: colors.secondary,
+    fontSize: fontSize.sm,
+    marginLeft: spacing.xs,
+  },
+  abnormalPhotoScroll: {
+    marginTop: spacing.xs,
+  },
+  abnormalPhotoThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.sm,
+    marginRight: spacing.xs,
+  },
+  modalPhotoRow: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.lg,
+  },
+  modalPhotoBtn: {
+    width: 72,
+    height: 72,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  modalPhotoBtnText: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    marginTop: 2,
+  },
+  modalPhotoCount: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    marginBottom: spacing.xs,
+  },
+  modalPhotoItem: {
+    position: 'relative',
+    marginRight: spacing.sm,
+  },
+  modalPhotoPreview: {
+    width: 56,
+    height: 56,
+    borderRadius: borderRadius.md,
+  },
+  modalPhotoRemove: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: colors.background,
+    borderRadius: 8,
   },
   logItem: {
     marginBottom: spacing.md,

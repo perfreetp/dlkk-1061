@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { View, ScrollView, StyleSheet, Text, TextInput, Pressable } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useState, useEffect } from 'react';
+import { View, ScrollView, StyleSheet, Text, TextInput, Pressable, Alert } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppStore } from '../../src/store/useAppStore';
 import { colors, spacing, fontSize, borderRadius } from '../../src/theme';
@@ -10,20 +10,25 @@ import { Badge } from '../../src/components/Badge';
 
 export default function CreateAirspaceScreen() {
   const router = useRouter();
+  const { editId } = useLocalSearchParams();
   const tasks = useAppStore((s) => s.tasks);
   const drones = useAppStore((s) => s.drones);
   const createAirspaceApplication = useAppStore((s) => s.createAirspaceApplication);
   const submitAirspaceApplication = useAppStore((s) => s.submitAirspaceApplication);
+  const updateAirspaceApplication = useAppStore((s) => s.updateAirspaceApplication);
+  const getAirspaceApplicationById = useAppStore((s) => s.getAirspaceApplicationById);
 
-  const [taskId, setTaskId] = useState('');
-  const [purpose, setPurpose] = useState('');
-  const [altitudeMin, setAltitudeMin] = useState('0');
-  const [altitudeMax, setAltitudeMax] = useState('120');
-  const [startDate, setStartDate] = useState('');
-  const [startTime, setStartTime] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [endTime, setEndTime] = useState('');
-  const [selectedDrones, setSelectedDrones] = useState<string[]>([]);
+  const existingApp = editId ? getAirspaceApplicationById(String(editId)) : undefined;
+
+  const [taskId, setTaskId] = useState(existingApp?.taskId || '');
+  const [purpose, setPurpose] = useState(existingApp?.purpose || '');
+  const [altitudeMin, setAltitudeMin] = useState(String(existingApp?.altitudeMin ?? '0'));
+  const [altitudeMax, setAltitudeMax] = useState(String(existingApp?.altitudeMax ?? '120'));
+  const [startDate, setStartDate] = useState(existingApp?.startTime ? existingApp.startTime.split(' ')[0] : '');
+  const [startTime, setStartTime] = useState(existingApp?.startTime ? existingApp.startTime.split(' ')[1]?.slice(0, 5) : '');
+  const [endDate, setEndDate] = useState(existingApp?.endTime ? existingApp.endTime.split(' ')[0] : '');
+  const [endTime, setEndTime] = useState(existingApp?.endTime ? existingApp.endTime.split(' ')[1]?.slice(0, 5) : '');
+  const [selectedDrones, setSelectedDrones] = useState<string[]>(existingApp?.droneIds || []);
 
   const selectedTask = tasks.find((t) => t.id === taskId);
 
@@ -36,6 +41,23 @@ export default function CreateAirspaceScreen() {
   };
 
   const handleSave = (submit: boolean) => {
+    if (editId && existingApp) {
+      updateAirspaceApplication(String(editId), {
+        taskId,
+        taskName: selectedTask?.name || existingApp.taskName,
+        purpose: purpose.trim(),
+        altitudeMin: parseInt(altitudeMin) || 0,
+        altitudeMax: parseInt(altitudeMax) || 120,
+        startTime: startDate && startTime ? `${startDate} ${startTime}:00` : '',
+        endTime: endDate && endTime ? `${endDate} ${endTime}:00` : '',
+        droneIds: selectedDrones,
+      });
+      if (submit) {
+        submitAirspaceApplication(String(editId));
+      }
+      router.back();
+      return;
+    }
     const appId = createAirspaceApplication({
       taskId,
       taskName: selectedTask?.name,
@@ -212,13 +234,13 @@ export default function CreateAirspaceScreen() {
           onPress={() => router.back()}
         />
         <Button
-          title="存草稿"
+          title={editId ? '保存修改' : '存草稿'}
           variant="secondary"
           style={{ flex: 1, marginRight: spacing.sm }}
           onPress={() => handleSave(false)}
         />
         <Button
-          title="提交审批"
+          title={editId ? '提交审批' : '提交审批'}
           style={{ flex: 1 }}
           disabled={!canSubmit}
           onPress={() => handleSave(true)}

@@ -12,6 +12,7 @@ import type {
   FlightRecord,
   Waypoint,
   User,
+  TaskReport,
 } from '../types';
 import {
   mockTasks,
@@ -53,6 +54,7 @@ interface AppState {
   createTask: (task: Partial<InspectionTask>) => void;
   updateTaskStatus: (taskId: string, status: InspectionTask['status']) => void;
   addAbnormalPoint: (taskId: string, point: Omit<AbnormalPoint, 'id' | 'reporterId' | 'reporterName' | 'reportedAt'>) => void;
+  addPhotosToAbnormalPoint: (taskId: string, abnormalId: string, photoUris: string[]) => void;
 
   bindDrone: (droneId: string) => void;
   unbindDrone: (droneId: string) => void;
@@ -60,11 +62,14 @@ interface AppState {
 
   createAirspaceApplication: (app: Partial<AirspaceApplication>) => void;
   submitAirspaceApplication: (appId: string) => void;
+  updateAirspaceApplication: (appId: string, updates: Partial<AirspaceApplication>) => void;
 
   markAlertRead: (alertId: string) => void;
   markAllAlertsRead: () => void;
 
   saveRoute: (route: FlightRoute) => void;
+
+  generateReport: (taskId: string) => string;
 
   getTaskById: (id: string) => InspectionTask | undefined;
   getDroneById: (id: string) => Drone | undefined;
@@ -111,7 +116,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       assigneeName: task.assigneeName,
       droneId: task.droneId,
       droneName: task.droneName,
+      droneModelId: task.droneModelId,
+      droneModelName: task.droneModelName,
       payloadId: task.payloadId,
+      payloadName: task.payloadName,
       routeId: task.routeId,
       routeName: task.routeName,
       scheduledTime: task.scheduledTime,
@@ -217,6 +225,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  updateAirspaceApplication: (appId, updates) => {
+    set((state) => ({
+      airspaceApplications: state.airspaceApplications.map((a) =>
+        a.id === appId ? { ...a, ...updates } : a
+      ),
+    }));
+  },
+
+  addPhotosToAbnormalPoint: (taskId, abnormalId, photoUris) => {
+    set((state) => ({
+      tasks: state.tasks.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              abnormalPoints: t.abnormalPoints.map((ap) =>
+                ap.id === abnormalId
+                  ? { ...ap, photos: [...ap.photos, ...photoUris] }
+                  : ap
+              ),
+              photos: [...t.photos, ...photoUris],
+            }
+          : t
+      ),
+    }));
+  },
+
   markAlertRead: (alertId) => {
     set((state) => ({
       alerts: state.alerts.map((a) =>
@@ -239,6 +273,75 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return { routes: [...state.routes, route] };
     });
+  },
+
+  generateReport: (taskId) => {
+    const task = get().tasks.find((t) => t.id === taskId);
+    const user = get().user;
+    const flightRecord = get().flightRecords.find((r) => r.taskId === taskId);
+    if (!task) return '';
+
+    const abnormalSummary = task.abnormalPoints.length > 0
+      ? task.abnormalPoints.map((ap, i) =>
+          `${i + 1}. [${ap.severity === 'severe' ? '严重' : ap.severity === 'moderate' ? '中等' : '轻微'}] ${ap.type}: ${ap.description}${ap.photos.length > 0 ? ` (附${ap.photos.length}张照片)` : ''}`
+        ).join('\n')
+      : '无异常发现';
+
+    const trajectorySummary = flightRecord
+      ? `飞行时长: ${flightRecord.duration}分钟, 飞行距离: ${flightRecord.distance}m, 最大高度: ${flightRecord.maxAltitude}m, 最大速度: ${flightRecord.maxSpeed}m/s, 拍摄照片: ${flightRecord.photos}张`
+      : '暂无飞行记录数据';
+
+    const reportContent = [
+      `【巡检报告】${task.name}`,
+      '',
+      `一、基本信息`,
+      `  任务名称: ${task.name}`,
+      `  巡检区域: ${task.areaName || '-'}`,
+      `  任务描述: ${task.description || '-'}`,
+      `  执行人: ${task.assigneeName || '未指派'}`,
+      `  无人机: ${task.droneName || '-'}${task.droneModelName ? ` (${task.droneModelName})` : ''}`,
+      `  载荷: ${task.payloadName || '未安装'}`,
+      `  航线: ${task.routeName || '-'}`,
+      `  计划时间: ${task.scheduledTime || '-'}`,
+      `  开始时间: ${task.startTime || '-'}`,
+      `  结束时间: ${task.endTime || '-'}`,
+      '',
+      `二、飞行轨迹摘要`,
+      `  ${trajectorySummary}`,
+      '',
+      `三、异常点 (${task.abnormalPoints.length}处)`,
+      `  ${abnormalSummary}`,
+      '',
+      `四、现场照片`,
+      `  ${task.photos.length > 0 ? `共${task.photos.length}张现场照片` : '无现场照片'}`,
+      '',
+      `五、巡检结论`,
+      `  ${task.abnormalPoints.length === 0 ? '本次巡检未发现异常，设备运行正常。' : `本次巡检共发现${task.abnormalPoints.length}处异常，其中严重${task.abnormalPoints.filter(a => a.severity === 'severe').length}处、中等${task.abnormalPoints.filter(a => a.severity === 'moderate').length}处、轻微${task.abnormalPoints.filter(a => a.severity === 'minor').length}处，建议及时处理。`}`,
+      '',
+      `报告生成时间: ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`,
+      `报告生成人: ${user.name}`,
+    ].join('\n');
+
+    const reportId = `rpt${Date.now()}`;
+    const newReport: TaskReport = {
+      id: reportId,
+      taskId: task.id,
+      title: `${task.name} - 巡检报告`,
+      content: reportContent,
+      generatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      generatedById: user.id,
+      generatedByName: user.name,
+    };
+
+    set((state) => ({
+      tasks: state.tasks.map((t) =>
+        t.id === taskId
+          ? { ...t, reports: [...t.reports, newReport] }
+          : t
+      ),
+    }));
+
+    return reportId;
   },
 
   getTaskById: (id) => get().tasks.find((t) => t.id === id),

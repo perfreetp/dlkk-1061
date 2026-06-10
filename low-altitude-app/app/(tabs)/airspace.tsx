@@ -28,6 +28,7 @@ export default function AirspaceListScreen() {
   const router = useRouter();
   const applications = useAppStore((s) => s.airspaceApplications);
   const drones = useAppStore((s) => s.drones);
+  const submitAirspaceApplication = useAppStore((s) => s.submitAirspaceApplication);
   const [filter, setFilter] = useState<ApprovalStatus | 'all'>('all');
 
   const filteredApps = useMemo(() => {
@@ -238,11 +239,15 @@ export default function AirspaceListScreen() {
                       size="sm"
                       variant="outline"
                       style={{ flex: 1, marginRight: spacing.sm }}
+                      onPress={() => router.push(`/airspace/create?editId=${app.id}`)}
                     />
                     <Button
                       title="提交审批"
                       size="sm"
                       style={{ flex: 1 }}
+                      onPress={() => {
+                        submitAirspaceApplication(app.id);
+                      }}
                     />
                   </View>
                 </CardSection>

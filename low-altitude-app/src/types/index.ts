@@ -90,7 +90,10 @@ export interface InspectionTask {
   assigneeName?: string;
   droneId?: string;
   droneName?: string;
+  droneModelId?: string;
+  droneModelName?: string;
   payloadId?: string;
+  payloadName?: string;
   routeId?: string;
   routeName?: string;
   airspaceApplicationId?: string;

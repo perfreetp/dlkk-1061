@@ -3,7 +3,7 @@ import { View, ScrollView, StyleSheet, Text, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppStore } from '../../src/store/useAppStore';
-import { colors, spacing, fontSize } from '../../src/theme';
+import { colors, spacing, fontSize, borderRadius } from '../../src/theme';
 import { Card, CardSection, CardDivider } from '../../src/components/Card';
 import { TaskStatusBadge, PriorityBadge } from '../../src/components/Badge';
 import { Button } from '../../src/components/Button';
@@ -149,6 +149,27 @@ export default function TaskListScreen() {
                 <View style={styles.metaRow}>
                   <Ionicons name="airplane-outline" size={14} color={colors.primary} />
                   <Text style={styles.metaText}>{task.droneName}</Text>
+                  {task.droneModelName && (
+                    <>
+                      <Text style={styles.metaDivider}>·</Text>
+                      <Ionicons name="hardware-chip-outline" size={14} color={colors.textMuted} />
+                      <Text style={styles.metaText}>{task.droneModelName}</Text>
+                    </>
+                  )}
+                  {task.payloadName ? (
+                    <>
+                      <Text style={styles.metaDivider}>·</Text>
+                      <Ionicons name="cube-outline" size={14} color={colors.secondary} />
+                      <Text style={[styles.metaText, { color: colors.secondary }]}>{task.payloadName}</Text>
+                    </>
+                  ) : task.droneModelName ? (
+                    <>
+                      <Text style={styles.metaDivider}>·</Text>
+                      <View style={styles.noPayloadTag}>
+                        <Text style={styles.noPayloadText}>载荷未安装</Text>
+                      </View>
+                    </>
+                  ) : null}
                   {task.assigneeName && (
                     <>
                       <Text style={styles.metaDivider}>·</Text>
@@ -295,5 +316,16 @@ const styles = StyleSheet.create({
   metaDivider: {
     color: colors.borderLight,
     marginHorizontal: spacing.sm,
+  },
+  noPayloadTag: {
+    backgroundColor: colors.warning + '20',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 1,
+    borderRadius: borderRadius.sm,
+  },
+  noPayloadText: {
+    color: colors.warning,
+    fontSize: fontSize.xs,
+    fontWeight: '500',
   },
 });

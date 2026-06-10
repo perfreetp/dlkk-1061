@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, ScrollView, StyleSheet, Text, Pressable, Modal, TextInput, Alert, Dimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, Pressable, Modal, TextInput, Alert, Dimensions, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Polyline, Marker, Polygon, Circle } from 'react-native-maps';
+import * as ImagePicker from 'expo-image-picker';
 import { useAppStore } from '../../src/store/useAppStore';
 import { colors, spacing, fontSize, borderRadius } from '../../src/theme';
 import { Button } from '../../src/components/Button';
@@ -20,19 +21,25 @@ export default function MonitorScreen() {
   const weather = useAppStore((s) => s.weather);
   const alerts = useAppStore((s) => s.alerts);
   const addAbnormal = useAppStore((s) => s.addAbnormalPoint);
+  const updateTaskStatus = useAppStore((s) => s.updateTaskStatus);
 
-  const inFlightTasks = tasks.filter((t) => t.status === 'in_progress');
+  const activeTasks = tasks.filter((t) => t.status === 'in_progress' || t.status === 'paused');
   const inFlightDrones = drones.filter((d) => d.status === 'in_flight');
-  const activeTask = inFlightTasks[0];
+  const activeTask = activeTasks[0];
   const activeDrone = inFlightDrones[0];
+
+  const isPaused = activeTask?.status === 'paused';
 
   const [showAbnormalModal, setShowAbnormalModal] = useState(false);
   const [abnormalType, setAbnormalType] = useState('');
   const [abnormalDesc, setAbnormalDesc] = useState('');
   const [abnormalSeverity, setAbnormalSeverity] = useState<'minor' | 'moderate' | 'severe'>('moderate');
+  const [abnormalPhotos, setAbnormalPhotos] = useState<string[]>([]);
   const [showControls, setShowControls] = useState(true);
   const [flightMode, setFlightMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [playbackIndex, setPlaybackIndex] = useState(0);
+  const [pausedAt, setPausedAt] = useState<string | null>(null);
+  const [pauseDuration, setPauseDuration] = useState(0);
 
   const trajectory = useMemo(() => {
     const points: Coordinate[] = [];
@@ -55,24 +62,89 @@ export default function MonitorScreen() {
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
       location: trajectory[trajectory.length - 1] || PARK_CENTER,
       altitude: trajectory[trajectory.length - 1]?.altitude || 100,
-      speed: 6 + Math.random() * 4,
+      speed: isPaused ? 0 : 6 + Math.random() * 4,
       heading: Math.random() * 360,
       batteryLevel: activeDrone.batteryLevel,
       batteryVoltage: 48 - t * 2,
       signalStrength: 85 + Math.random() * 10,
       satelliteCount: 14 + Math.floor(Math.random() * 4),
-      flightMode,
-      motors: [1800, 1850, 1780, 1820, 1810, 1830],
+      flightMode: isPaused ? 'HOVER' : flightMode,
+      motors: isPaused ? [0, 0, 0, 0, 0, 0] : [1800, 1850, 1780, 1820, 1810, 1830],
     };
-  }, [activeDrone, playbackIndex, flightMode, trajectory]);
+  }, [activeDrone, playbackIndex, flightMode, trajectory, isPaused]);
 
   useEffect(() => {
-    if (inFlightDrones.length === 0) return;
+    if (inFlightDrones.length === 0 || isPaused) return;
     const interval = setInterval(() => {
       setPlaybackIndex((p) => (p >= 49 ? 0 : p + 1));
     }, 500);
     return () => clearInterval(interval);
-  }, [inFlightDrones.length]);
+  }, [inFlightDrones.length, isPaused]);
+
+  useEffect(() => {
+    if (!isPaused || !pausedAt) return;
+    const interval = setInterval(() => {
+      const start = new Date(pausedAt).getTime();
+      setPauseDuration(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isPaused, pausedAt]);
+
+  const handlePause = () => {
+    if (!activeTask) return;
+    if (isPaused) {
+      updateTaskStatus(activeTask.id, 'in_progress');
+      setPausedAt(null);
+      setPauseDuration(0);
+    } else {
+      updateTaskStatus(activeTask.id, 'paused');
+      setPausedAt(new Date().toISOString());
+      setPauseDuration(0);
+    }
+  };
+
+  const formatPauseDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  const handleTakePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('权限不足', '需要摄像头权限才能拍照');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setAbnormalPhotos((prev) => [...prev, result.assets[0].uri]);
+    }
+  };
+
+  const handlePickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('权限不足', '需要相册访问权限');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      const uris = result.assets.map((a) => a.uri);
+      setAbnormalPhotos((prev) => [...prev, ...uris]);
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setAbnormalPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleAddAbnormal = () => {
     if (!activeTask || !abnormalType.trim() || !abnormalDesc.trim()) return;
@@ -82,17 +154,18 @@ export default function MonitorScreen() {
       type: abnormalType.trim(),
       description: abnormalDesc.trim(),
       severity: abnormalSeverity,
-      photos: [],
+      photos: abnormalPhotos,
       handled: false,
     });
     setShowAbnormalModal(false);
     setAbnormalType('');
     setAbnormalDesc('');
     setAbnormalSeverity('moderate');
-    Alert.alert('上报成功', '异常点已成功上报');
+    setAbnormalPhotos([]);
+    Alert.alert('上报成功', `异常点已成功上报${abnormalPhotos.length > 0 ? `，包含 ${abnormalPhotos.length} 张照片` : ''}`);
   };
 
-  if (inFlightDrones.length === 0) {
+  if (activeTasks.length === 0) {
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconWrap}>
@@ -117,12 +190,15 @@ export default function MonitorScreen() {
         <View style={styles.videoFeed}>
           <View style={styles.videoOverlayTop}>
             <View style={styles.videoInfo}>
-              <Badge text={flightMode === 'AUTO' ? '自动飞行' : '手动控制'} color={colors.primary} />
-              <Badge text="REC" color={colors.danger} />
+              <Badge text={isPaused ? '悬停暂停' : flightMode === 'AUTO' ? '自动飞行' : '手动控制'} color={isPaused ? colors.warning : colors.primary} />
+              {!isPaused && <Badge text="REC" color={colors.danger} />}
+              {isPaused && <Badge text="暂停中" color={colors.warning} />}
             </View>
             <View style={styles.timeInfo}>
               <Ionicons name="time-outline" size={14} color={colors.text} />
-              <Text style={styles.timeText}>飞行 {Math.floor(playbackIndex * 0.5)}:00</Text>
+              <Text style={styles.timeText}>
+                {isPaused ? `暂停 ${formatPauseDuration(pauseDuration)}` : `飞行 ${Math.floor(playbackIndex * 0.5)}:00`}
+              </Text>
             </View>
           </View>
           <View style={styles.videoPlaceholder}>
@@ -131,6 +207,13 @@ export default function MonitorScreen() {
             <Text style={styles.videoSubText}>
               {telemetry?.location.latitude.toFixed(6)}, {telemetry?.location.longitude.toFixed(6)}
             </Text>
+            {isPaused && (
+              <View style={styles.pauseOverlay}>
+                <Ionicons name="pause-circle" size={48} color={colors.warning} />
+                <Text style={styles.pauseOverlayText}>悬停暂停中</Text>
+                <Text style={styles.pauseOverlayTimer}>已暂停 {formatPauseDuration(pauseDuration)}</Text>
+              </View>
+            )}
           </View>
           <View style={styles.videoOverlayBottom}>
             <View style={styles.telemetryBar}>
@@ -242,7 +325,7 @@ export default function MonitorScreen() {
               <View style={styles.statusCardBody}>
                 <Text style={styles.taskName} numberOfLines={1}>{activeTask?.name}</Text>
                 <Text style={styles.taskProgress}>
-                  已发现 {activeTask?.abnormalPoints.length || 0} 处异常
+                  {isPaused ? '⏸ 任务已暂停' : `已发现 ${activeTask?.abnormalPoints.length || 0} 处异常`}
                 </Text>
                 <View style={styles.taskActions}>
                   <Button
@@ -291,9 +374,18 @@ export default function MonitorScreen() {
           </Text>
         </Pressable>
 
-        <Pressable style={styles.actionBtn}>
-          <Ionicons name="pause" size={22} color={colors.warning} />
-          <Text style={[styles.actionBtnText, { color: colors.warning }]}>悬停</Text>
+        <Pressable
+          style={[styles.actionBtn, isPaused && styles.actionBtnResume]}
+          onPress={handlePause}
+        >
+          <Ionicons
+            name={isPaused ? 'play' : 'pause'}
+            size={22}
+            color={isPaused ? colors.success : colors.warning}
+          />
+          <Text style={[styles.actionBtnText, { color: isPaused ? colors.success : colors.warning }]}>
+            {isPaused ? '继续' : '悬停'}
+          </Text>
         </Pressable>
 
         <Pressable
@@ -400,15 +492,33 @@ export default function MonitorScreen() {
 
               <Text style={[styles.label, { marginTop: spacing.lg }]}>现场照片</Text>
               <View style={styles.photoRow}>
-                <Pressable style={styles.addPhotoBtn}>
+                <Pressable style={styles.addPhotoBtn} onPress={handleTakePhoto}>
                   <Ionicons name="camera" size={28} color={colors.primary} />
                   <Text style={styles.addPhotoText}>拍照</Text>
                 </Pressable>
-                <Pressable style={styles.addPhotoBtn}>
+                <Pressable style={styles.addPhotoBtn} onPress={handlePickImage}>
                   <Ionicons name="images" size={28} color={colors.primary} />
                   <Text style={styles.addPhotoText}>相册</Text>
                 </Pressable>
               </View>
+              {abnormalPhotos.length > 0 && (
+                <View style={styles.photoPreviewRow}>
+                  <Text style={styles.photoCountText}>已选择 {abnormalPhotos.length} 张照片</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {abnormalPhotos.map((uri, idx) => (
+                      <View key={idx} style={styles.photoPreviewItem}>
+                        <Image source={{ uri }} style={styles.photoPreview} />
+                        <Pressable
+                          style={styles.photoRemoveBtn}
+                          onPress={() => removePhoto(idx)}
+                        >
+                          <Ionicons name="close-circle" size={18} color={colors.danger} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </ScrollView>
             <View style={styles.modalFooter}>
               <Button
@@ -483,6 +593,27 @@ const styles = StyleSheet.create({
   videoSubText: {
     color: colors.textMuted,
     fontSize: fontSize.sm,
+    marginTop: spacing.xs,
+  },
+  pauseOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pauseOverlayText: {
+    color: colors.warning,
+    fontSize: fontSize.lg,
+    fontWeight: '700',
+    marginTop: spacing.sm,
+  },
+  pauseOverlayTimer: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
     marginTop: spacing.xs,
   },
   videoOverlayTop: {
@@ -664,6 +795,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.danger + '15',
     borderRadius: borderRadius.md,
   },
+  actionBtnResume: {
+    backgroundColor: colors.success + '20',
+    borderRadius: borderRadius.md,
+  },
   actionBtnEmergency: {
     backgroundColor: colors.danger,
     borderRadius: borderRadius.md,
@@ -755,6 +890,31 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: fontSize.sm,
     marginTop: 2,
+  },
+  photoPreviewRow: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+  },
+  photoCountText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    marginBottom: spacing.sm,
+  },
+  photoPreviewItem: {
+    position: 'relative',
+    marginRight: spacing.sm,
+  },
+  photoPreview: {
+    width: 64,
+    height: 64,
+    borderRadius: borderRadius.md,
+  },
+  photoRemoveBtn: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: colors.background,
+    borderRadius: 9,
   },
   modalFooter: {
     flexDirection: 'row',

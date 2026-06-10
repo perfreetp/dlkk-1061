@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, ScrollView, StyleSheet, Text, Pressable, Dimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, Pressable, Dimensions, Modal, Share, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Polyline, Marker } from 'react-native-maps';
@@ -12,7 +12,7 @@ import { SectionHeader, InfoRow, EmptyState } from '../../src/components/Common'
 import { Badge } from '../../src/components/Badge';
 import { ProgressBar } from '../../src/components/Progress';
 import { formatDateTime, formatDistance, formatDuration } from '../../src/utils';
-import type { Coordinate } from '../../src/types';
+import type { Coordinate, TaskReport } from '../../src/types';
 
 const PARK_CENTER: Coordinate = { latitude: 39.9042, longitude: 116.4074 };
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -44,6 +44,11 @@ export default function ReviewScreen() {
   const drones = useAppStore((s) => s.drones);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(flightRecords[0]?.id || null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [viewingReport, setViewingReport] = useState<TaskReport | null>(null);
+  const [generatingTaskId, setGeneratingTaskId] = useState<string | null>(null);
+
+  const generateReport = useAppStore((s) => s.generateReport);
 
   const selectedFlight = flightRecords.find((f) => f.id === selectedFlightId);
   const completedTasks = tasks.filter((t) => t.status === 'completed');
@@ -111,6 +116,48 @@ export default function ReviewScreen() {
   const handleViewReplay = (flightId: string) => {
     setSelectedFlightId(flightId);
     router.push(`/review/detail?id=${flightId}`);
+  };
+
+  const handleGenerateReport = (taskId: string) => {
+    setGeneratingTaskId(taskId);
+    const reportId = generateReport(taskId);
+    if (reportId) {
+      const task = tasks.find((t) => t.id === taskId);
+      const report = task?.reports.find((r) => r.id === reportId);
+      if (report) {
+        setViewingReport(report);
+        setShowReportModal(true);
+      }
+    }
+    setGeneratingTaskId(null);
+  };
+
+  const handleViewReport = (task: typeof completedTasks[0]) => {
+    if (task.reports.length > 0) {
+      setViewingReport(task.reports[task.reports.length - 1]);
+      setShowReportModal(true);
+    } else {
+      handleGenerateReport(task.id);
+    }
+  };
+
+  const handleExportPDF = async (task: typeof completedTasks[0]) => {
+    let report = task.reports.length > 0 ? task.reports[task.reports.length - 1] : null;
+    if (!report) {
+      const reportId = generateReport(task.id);
+      const updatedTask = tasks.find((t) => t.id === task.id);
+      report = updatedTask?.reports.find((r) => r.id === reportId) || null;
+    }
+    if (!report) return;
+
+    try {
+      await Share.share({
+        message: report.content,
+        title: report.title,
+      });
+    } catch (e) {
+      Alert.alert('导出失败', '无法导出报告，请重试');
+    }
   };
 
   return (
@@ -405,10 +452,12 @@ export default function ReviewScreen() {
 
                   <CardSection style={{ paddingTop: 0, flexDirection: 'row' }}>
                     <Button
-                      title="查看报告"
+                      title={task.reports.length > 0 ? '查看报告' : '生成报告'}
                       size="sm"
                       style={{ flex: 1, marginRight: spacing.sm }}
-                      icon={<Ionicons name="eye-outline" size={14} color={colors.text} />}
+                      icon={<Ionicons name={task.reports.length > 0 ? 'eye-outline' : 'document-text-outline'} size={14} color={colors.text} />}
+                      onPress={() => handleViewReport(task)}
+                      loading={generatingTaskId === task.id}
                     />
                     <Button
                       title="导出PDF"
@@ -416,6 +465,7 @@ export default function ReviewScreen() {
                       variant="outline"
                       style={{ flex: 1, marginLeft: spacing.sm }}
                       icon={<Ionicons name="download-outline" size={14} color={colors.primary} />}
+                      onPress={() => handleExportPDF(task)}
                     />
                   </CardSection>
                 </Card>
@@ -424,6 +474,81 @@ export default function ReviewScreen() {
           </>
         )}
       </ScrollView>
+
+      <Modal
+        visible={showReportModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowReportModal(false)}
+      >
+        <View style={styles.reportModalOverlay}>
+          <View style={styles.reportModalContent}>
+            <View style={styles.reportModalHeader}>
+              <Text style={styles.reportModalTitle} numberOfLines={1}>
+                {viewingReport?.title || '巡检报告'}
+              </Text>
+              <Pressable onPress={() => setShowReportModal(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.reportModalBody}>
+              {viewingReport && (
+                <>
+                  <View style={styles.reportMetaRow}>
+                    <View style={styles.reportMetaItem}>
+                      <Ionicons name="person-outline" size={14} color={colors.textMuted} />
+                      <Text style={styles.reportMetaText}>{viewingReport.generatedByName}</Text>
+                    </View>
+                    <View style={styles.reportMetaItem}>
+                      <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+                      <Text style={styles.reportMetaText}>{formatDateTime(viewingReport.generatedAt)}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.reportContentBox}>
+                    {viewingReport.content.split('\n').map((line, i) => (
+                      <Text
+                        key={i}
+                        style={[
+                          styles.reportContentText,
+                          line.startsWith('【') && styles.reportContentTitle,
+                          line.startsWith('一、') || line.startsWith('二、') || line.startsWith('三、') || line.startsWith('四、') || line.startsWith('五、')
+                            ? styles.reportContentSection
+                            : null,
+                        ]}
+                      >
+                        {line || ' '}
+                      </Text>
+                    ))}
+                  </View>
+                </>
+              )}
+            </ScrollView>
+            <View style={styles.reportModalFooter}>
+              <Button
+                title="关闭"
+                variant="outline"
+                style={{ flex: 1, marginRight: spacing.md }}
+                onPress={() => setShowReportModal(false)}
+              />
+              <Button
+                title="分享导出"
+                style={{ flex: 1 }}
+                icon={<Ionicons name="share-outline" size={16} color={colors.text} />}
+                onPress={async () => {
+                  if (viewingReport) {
+                    try {
+                      await Share.share({
+                        message: viewingReport.content,
+                        title: viewingReport.title,
+                      });
+                    } catch (e) {}
+                  }
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -613,5 +738,78 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: fontSize.sm,
     marginTop: 2,
+  },
+  reportModalOverlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'flex-end',
+  },
+  reportModalContent: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    maxHeight: '90%',
+  },
+  reportModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  reportModalTitle: {
+    color: colors.text,
+    fontSize: fontSize.xl,
+    fontWeight: '700',
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  reportModalBody: {
+    flex: 1,
+    padding: spacing.lg,
+  },
+  reportMetaRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.lg,
+  },
+  reportMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: spacing.xl,
+  },
+  reportMetaText: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    marginLeft: spacing.xs,
+  },
+  reportContentBox: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+  },
+  reportContentText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    lineHeight: 22,
+  },
+  reportContentTitle: {
+    color: colors.text,
+    fontSize: fontSize.xl,
+    fontWeight: '700',
+    marginBottom: spacing.md,
+  },
+  reportContentSection: {
+    color: colors.primary,
+    fontSize: fontSize.lg,
+    fontWeight: '600',
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  reportModalFooter: {
+    flexDirection: 'row',
+    padding: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
 });
